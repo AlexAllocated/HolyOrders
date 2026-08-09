@@ -4,6 +4,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) /
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Sync protocol
 bumps are called out — mismatched clients ignore each other's messages.
 
+## [0.37.1] - 2026-08-05
+
+### Fixed
+- The cast bar was invisible for protection paladins on 0.37.0.
+
 ## [0.37.0] - 2026-08-05
 
 ### Added
