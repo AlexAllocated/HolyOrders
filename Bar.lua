@@ -1197,7 +1197,13 @@ local function RefreshSelfBuffButton()
 	selfBuffButton.icon:SetTexture(buff.icon)
 	selfBuffButton.icon:SetDesaturated(not up)
 	selfBuffButton.icon:SetAlpha(up and 1 or 0.45)
-	selfBuffButton.frame:SetVertexColor(up and HO.Colors.rgb("green", 1) or HO.Colors.rgb("red", 1))
+	-- rgb() returns four values; inside an and/or expression Lua truncates it
+	-- to the first one, so the call must stand alone in each branch
+	if up then
+		selfBuffButton.frame:SetVertexColor(HO.Colors.rgb("green", 1))
+	else
+		selfBuffButton.frame:SetVertexColor(HO.Colors.rgb("red", 1))
+	end
 	if not InCombatLockdown() then
 		selfBuffButton:SetAttribute("spell1", buff.name)
 		selfBuffButton:Show()
