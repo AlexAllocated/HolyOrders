@@ -4,6 +4,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) /
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Sync protocol
 bumps are called out — mismatched clients ignore each other's messages.
 
+## [0.37.2] - 2026-08-20
+
+### Fixed
+- `/ho opt` opens the options again on 2.5.6. The patch replaced the legacy
+  Interface Options frame with the Settings panel, so the old
+  `InterfaceOptionsFrame_OpenToCategory` call led nowhere.
+- Skin font swaps no longer risk an error on 2.5.6, which validates the
+  `SetFont` flag argument strictly and rejects the `nil` that `GetFont()`
+  returns for a font object without flags.
+
 ## [0.37.1] - 2026-08-05
 
 ### Fixed
