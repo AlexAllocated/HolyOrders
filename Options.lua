@@ -318,12 +318,18 @@ end
 -- call this
 function Options.Toggle()
 	Options.Create()
-	if blizPanel and InterfaceOptionsFrame_OpenToCategory then
+	if not blizPanel then return end
+	-- 2.5.6 replaced the legacy Interface Options frame with the Settings
+	-- panel, so InterfaceOptionsFrame_OpenToCategory no longer navigates
+	-- anywhere (it can survive as a dead stub). Settings comes first now;
+	-- AceConfigDialog:AddToBlizOptions already registers us there and
+	-- blizPanel.name holds the category ID it returned.
+	if Settings and Settings.OpenToCategory then
+		Settings.OpenToCategory(blizPanel.name or "HolyOrders")
+	elseif InterfaceOptionsFrame_OpenToCategory then
 		-- classic quirk: the first call may not navigate on a cold frame
 		InterfaceOptionsFrame_OpenToCategory(blizPanel)
 		InterfaceOptionsFrame_OpenToCategory(blizPanel)
-	elseif Settings and Settings.OpenToCategory and blizPanel then
-		Settings.OpenToCategory(blizPanel.name or "HolyOrders")
 	end
 end
 
