@@ -70,7 +70,9 @@ local function ApplyFont(face)
 		f:CopyFontObject(role.inherit)
 		if face then
 			local _, size, flags = f:GetFont()
-			f:SetFont(face, size, flags)
+			-- 2.5.6 validates the flag argument strictly; GetFont() hands back
+			-- nil when a font object carries no flags, so pass "" instead.
+			f:SetFont(face, size, flags or "")
 		end
 	end
 end
