@@ -9,6 +9,8 @@ HO.Bar = Bar
 local L = HO.L
 
 local BUTTON_SIZE = 34
+local TIMER_FIT_PADDING = 6 -- px the icon-overlay timer keeps clear of the ring
+local TIMER_MIN_FONT = 9 -- smallest size a shrunk icon-overlay timer may use
 local GAP = 5
 local HANDLE_WIDTH = 22 -- gem-node thickness (along the bar)
 local HANDLE_ACROSS = 44 -- gem-node length (across the bar); 2:1 keeps the gem round
@@ -320,10 +322,29 @@ local function TintButtonBg(btn, r, g, b, a)
 	end
 end
 
+-- the timer overlaid on the icon: short texts ("9m") keep the large font,
+-- wider ones ("59m") shrink until they fit inside the icon. Font ops are not
+-- protected, so this is safe in combat; recomputed only when the text changes.
+local function FitTimer(btn, text)
+	btn.timer:SetText(text)
+	local font = btn.timerFont
+	if not font or btn.timerFitText == text then
+		return
+	end
+	btn.timerFitText = text
+	btn.timer:SetFont(font.face, font.size, font.flags)
+	local maxWidth = btn:GetWidth() - TIMER_FIT_PADDING
+	local width = btn.timer:GetStringWidth()
+	if width > maxWidth and width > 0 then
+		local size = math.max(TIMER_MIN_FONT, math.floor(font.size * maxWidth / width))
+		btn.timer:SetFont(font.face, size, font.flags)
+	end
+end
+
 -- button visuals that are safe to update in combat
 local function UpdateButtonTexts(btn, task)
 	btn.count:SetText(task.missing > 0 and tostring(task.missing) or "")
-	btn.timer:SetText(FormatShort(task.minRemaining))
+	FitTimer(btn, FormatShort(task.minRemaining))
 	-- during a force rebuff a class stays red only while IT still has reachable
 	-- work (the sweep re-casts anything older than 2 minutes); a finished class
 	-- turns green right away so per-class progress is visible. The handle gem
@@ -942,7 +963,9 @@ local function CreateButton(classIndex)
 		btn.timer:SetPoint("CENTER", btn, "CENTER", 0, 0)
 		btn.timer:SetDrawLayer("OVERLAY", 4) -- above icon, frame and class badge
 		local tf, ts = btn.timer:GetFont()
-		btn.timer:SetFont(tf, (ts or 14) + 3, "THICKOUTLINE")
+		-- remembered so FitTimer can shrink wide texts ("59m") and restore it
+		btn.timerFont = { face = tf, size = (ts or 14) + 3, flags = "THICKOUTLINE" }
+		btn.timer:SetFont(btn.timerFont.face, btn.timerFont.size, btn.timerFont.flags)
 	end
 
 	-- INSECURE hover extras ride along via HookScript (SetScript would overwrite
