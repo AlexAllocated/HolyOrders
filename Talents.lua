@@ -24,22 +24,19 @@ function Talents.Scan()
 		end
 	end
 
-	for tab = 1, GetNumTalentTabs() do
-		local points = 0
-		for index = 1, GetNumTalents(tab) do
-			local _, icon, _, _, rank = GetTalentInfo(tab, index)
-			rank = rank or 0
-			points = points + rank
-			local blessingID = icon and byIcon[icon]
-			if blessingID and rank > 0 then
-				local current = Talents.ranks[blessingID] or 0
-				if rank > current then
-					Talents.ranks[blessingID] = rank
-				end
+	HO.Compat.ForEachOwnTalent(function(tab, icon, rank)
+		-- tab 0: the trait client has no ordered spec trees, so no tab totals
+		if tab > 0 then
+			Talents.tabPoints[tab] = (Talents.tabPoints[tab] or 0) + rank
+		end
+		local blessingID = icon and byIcon[icon]
+		if blessingID and rank > 0 then
+			local current = Talents.ranks[blessingID] or 0
+			if rank > current then
+				Talents.ranks[blessingID] = rank
 			end
 		end
-		Talents.tabPoints[tab] = points
-	end
+	end)
 end
 
 -- "40/21/0"-style summary of own talent distribution
@@ -50,6 +47,8 @@ function Talents.SpecSummary()
 	return table.concat(Talents.tabPoints, "/")
 end
 
-HO.RegisterEvent("CHARACTER_POINTS_CHANGED", function()
-	Talents.Scan()
-end)
+for _, event in ipairs(HO.Compat.TALENT_EVENTS) do
+	HO.RegisterEvent(event, function()
+		Talents.Scan()
+	end)
+end

@@ -7,7 +7,6 @@ local Engine = {}
 HO.Engine = Engine
 
 local EXPIRING_SOON = 300 -- seconds left that count as "needs a refresh"
-local MAX_BUFFS = 40
 local SALVATION = 4
 local FRESH_AGE = 120 -- force mode: buffs older than this are re-cast
 local FORCE_DURATION = 300 -- force mode safety timeout
@@ -177,19 +176,14 @@ local function HasBlessing(unit, blessingID)
 	if not blessing then
 		return false, nil
 	end
-	for i = 1, MAX_BUFFS do
-		local name, _, _, _, duration, expirationTime = UnitBuff(unit, i)
-		if not name then
-			break
-		end
-		if name == blessing.name or name == blessing.greaterName then
-			if expirationTime and expirationTime > 0 then
-				return true, expirationTime - GetTime(), duration
-			end
-			return true, nil, nil
-		end
+	local found, duration, expirationTime = HO.Compat.FindBuff(unit, blessing.name, blessing.greaterName)
+	if not found then
+		return false, nil, nil
 	end
-	return false, nil, nil
+	if expirationTime and expirationTime > 0 then
+		return true, expirationTime - GetTime(), duration
+	end
+	return true, nil, nil
 end
 
 local function Castable(entry)
@@ -197,11 +191,11 @@ local function Castable(entry)
 end
 
 local function InCastRange(blessing, unit)
-	local result = IsSpellInRange(blessing.name, unit)
+	local result = HO.Compat.SpellInRange(blessing.name, unit)
 	if result == nil then
 		return true -- indeterminate: do not block the rotation
 	end
-	return result == 1
+	return result
 end
 
 local function UseGreater(assign, eligiblePlayers)

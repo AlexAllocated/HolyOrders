@@ -1111,16 +1111,7 @@ local function PlayerHasAura(auraName)
 	if not auraName then
 		return false
 	end
-	for i = 1, 40 do
-		local name = UnitBuff("player", i)
-		if not name then
-			break
-		end
-		if name == auraName then
-			return true
-		end
-	end
-	return false
+	return (HO.Compat.FindBuff("player", auraName))
 end
 
 -- the protection threat self-buff slot: a plain self-cast button whose icon is

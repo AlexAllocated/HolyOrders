@@ -1,4 +1,4 @@
-## Interface: 20506
+## Interface: 20506, 16001
 ## Title: HolyOrders
 ## Notes: Paladin blessing coordination — persistent plans, reliable sync
 ## Author: Klopfer-Hello
@@ -13,6 +13,7 @@ Libs\AceGUI-3.0\AceGUI-3.0.xml
 Libs\AceConfig-3.0\AceConfig-3.0.xml
 
 HolyOrders.lua
+Compat.lua
 Locale.lua
 Colors.lua
 Skin.lua

@@ -131,6 +131,11 @@ HO.RegisterEvent("INSPECT_READY", function(guid)
 end)
 
 HO.RegisterEvent("PLAYER_LOGIN", function()
+	-- spec inference reads classic talent tabs; the trait client has none, so
+	-- there manual/synced spec tags are the only source
+	if not HO.Compat.HAS_TALENT_TABS then
+		return
+	end
 	HO.Roster.OnChanged(Enqueue)
 	C_Timer.NewTicker(3, Pump)
 end)

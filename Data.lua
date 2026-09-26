@@ -66,23 +66,17 @@ end
 -- highest known entry per spell name (later book slots hold higher ranks)
 local function ScanSpellbook()
 	local known = {}
-	for tab = 1, GetNumSpellTabs() do
-		local _, _, offset, numSlots = GetSpellTabInfo(tab)
-		for slot = offset + 1, offset + numSlots do
-			local name, rank = GetSpellBookItemName(slot, BOOKTYPE_SPELL)
-			if name then
-				known[name] = { rank = rank, slot = slot }
-			end
-		end
-	end
+	HO.Compat.ForEachSpellBookItem(function(slot, name, rank)
+		known[name] = { rank = rank, slot = slot }
+	end)
 	return known
 end
 
 function Data.Refresh()
 	local book = ScanSpellbook()
 	for _, blessing in ipairs(Data.blessings) do
-		local nName, _, nIcon = GetSpellInfo(blessing.normal)
-		local gName, _, gIcon = GetSpellInfo(blessing.greater)
+		local nName, nIcon = HO.Compat.SpellNameIcon(blessing.normal)
+		local gName, gIcon = HO.Compat.SpellNameIcon(blessing.greater)
 		blessing.name, blessing.icon = nName, nIcon
 		blessing.greaterName, blessing.greaterIcon = gName, gIcon
 		local nEntry = nName and book[nName]
@@ -107,12 +101,12 @@ end
 function Data.RefreshAuras()
 	local book = ScanSpellbook()
 	for _, aura in ipairs(Data.auras) do
-		local name, _, icon = GetSpellInfo(aura.base)
+		local name, icon = HO.Compat.SpellNameIcon(aura.base)
 		aura.name, aura.icon = name, icon
 		aura.known = (name and book[name]) ~= nil
 	end
 	-- the protection threat self-buff, resolved the same locale-safe way
-	local name, _, icon = GetSpellInfo(Data.selfBuff.base)
+	local name, icon = HO.Compat.SpellNameIcon(Data.selfBuff.base)
 	Data.selfBuff.name, Data.selfBuff.icon = name, icon
 	Data.selfBuff.known = (name and book[name]) ~= nil
 end
@@ -139,7 +133,7 @@ function Data.AuraIcon(id)
 end
 
 function Data.SymbolCount()
-	return GetItemCount(Data.SYMBOL_OF_KINGS) or 0
+	return HO.Compat.ItemCount(Data.SYMBOL_OF_KINGS)
 end
 
 HO.RegisterEvent("SPELLS_CHANGED", function()
