@@ -308,19 +308,23 @@ local function RunCore(pallys)
 		end
 	end
 
+	-- the Salvation-for-everyone solo mode needs a paladin who can cast it; a
+	-- levelling paladin without Salvation plans like any other party instead
+	local soloSalv = solo and IsInGroup() and Available(pallys[1], SALVATION)
+
 	local assigned = {} -- [pallyName] = blessingID
 	if solo and not IsInGroup() then
 		-- truly alone: Salvation on yourself is pointless (threat reduction
 		-- only matters with a tank)
 		AssignSelfBlessing(pallys[1])
-	elseif solo then
+	elseif soloSalv then
 		-- solo paladin in a group, raid AND party alike: Salvation on everyone.
 		-- Tanks are protected by the step-2/3 rules (their classes fall to singles
 		-- that skip them, and they receive Kings), pets get the pet blessing
 		-- through their owner's class row, and explicit member requests still win
 		-- via the step-4 request pass.
 		assigned[pallys[1]] = SALVATION
-	elseif isRaid then
+	elseif isRaid and not solo then
 		local used = {}
 		for i = 1, math.min(#pallys, #RAID_COVERAGE) do
 			local blessing = RAID_COVERAGE[i]
@@ -339,7 +343,8 @@ local function RunCore(pallys)
 			end
 		end
 	else
-		-- multi-paladin party: singles economics — each class gets its top
+		-- multi-paladin party, or a lone paladin without Salvation (party or
+		-- raid): singles economics — each class gets its top castable
 		-- preferences, one per paladin (different blessings per class are
 		-- fine; one-blessing-per-paladin is a per-target rule)
 		for classToken in pairs(classes) do
@@ -392,8 +397,9 @@ local function RunCore(pallys)
 					if info.tanks >= info.members then
 						-- class consists only of tanks: first CASTABLE tank
 						-- blessing (a paladin without the Kings talent gives
-						-- Light instead of an uncastable Kings)
-						blessing = KINGS
+						-- Light instead of an uncastable Kings); none castable
+						-- leaves the class unassigned
+						blessing = nil
 						for _, id in ipairs(TANK_CHAIN) do
 							if HO.Data.IsEligible(classToken, id, true) and Available(pally, id) then
 								blessing = id
@@ -404,7 +410,9 @@ local function RunCore(pallys)
 						mode = "normal" -- singles; the cast engine skips tanks
 					end
 				end
-				HO.Plan.SetClassAssignment(pally, classToken, blessing, mode)
+				if blessing then
+					HO.Plan.SetClassAssignment(pally, classToken, blessing, mode)
+				end
 			end
 		end
 	end
@@ -492,7 +500,7 @@ local function RunCore(pallys)
 	-- 4) per-member preference singles for what the coverage doesn't provide
 	for _, entry in ipairs(sortedUnits) do
 		if not entry.isPet and entry.name and not IsTankEntry(plan, entry) then
-			if solo then
+			if soloSalv then
 				-- solo mode defaults every non-tank to Salvation, so the default
 				-- preference chains must NOT re-override it. Still honor an EXPLICIT
 				-- buff request (not the default chain) as a single override, so a
