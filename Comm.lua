@@ -14,6 +14,7 @@ local PROTO = "4"
 Comm.PROTO = PROTO
 local SET_DELAY = 1.0
 local HELLO_DELAY = 2.0
+local CAPS_SETTLE = 2.0 -- seconds to batch spellbook/talent updates before re-announcing
 local MAX_MSG = 250 -- WoW addon messages cap at 255 bytes
 local MAX_FRAGMENTS = 10 -- messages needing more chunks than this are dropped, not sent
 
@@ -380,8 +381,37 @@ end
 
 -- outgoing --------------------------------------------------------------------
 
+-- capabilities last announced to the whole group (nil: never)
+local lastGroupCaps
+
 function Comm.SendHello(channel, target)
-	Send("H:" .. HO.VERSION .. ";" .. (HO.db.options.openEdit and "1" or "0") .. ";" .. Caps(), channel, target)
+	local caps = Caps()
+	if not channel then
+		lastGroupCaps = caps
+	end
+	Send("H:" .. HO.VERSION .. ";" .. (HO.db.options.openEdit and "1" or "0") .. ";" .. caps, channel, target)
+end
+
+-- learning a blessing, a new rank or a talent changes what I can cast; the
+-- other paladins' planners must see it, not only after the next roster change.
+-- Batched (spellbook events come in bursts) and sent only when the
+-- capabilities really differ from the last group announcement.
+local capsTimer
+local function ScheduleCapsAnnounce()
+	if capsTimer then
+		return
+	end
+	capsTimer = C_Timer.NewTimer(CAPS_SETTLE, function()
+		capsTimer = nil
+		if IsPaladin() and Channel() and lastGroupCaps and Caps() ~= lastGroupCaps then
+			Comm.SendHello()
+		end
+	end)
+end
+
+HO.RegisterEvent("SPELLS_CHANGED", ScheduleCapsAnnounce)
+for _, event in ipairs(HO.Compat.TALENT_EVENTS) do
+	HO.RegisterEvent(event, ScheduleCapsAnnounce)
 end
 
 function Comm.SendFull(target)
