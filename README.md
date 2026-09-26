@@ -4,7 +4,8 @@
 
 ![HolyOrders](media/banner.png)
 
-Paladin blessing coordination for WoW Classic (TBC Anniversary, 2.5.6) —
+Paladin blessing coordination for WoW Classic (TBC Anniversary 2.5.6 and
+WoW Forever 1.60.1) —
 assign, sync, and cast raid blessings without wasting raid time.
 
 A fully independent, from-scratch implementation.
@@ -86,7 +87,8 @@ messages in chat" in the options if you want to see them.
 
 ## Compatibility
 
-For WoW Classic TBC Anniversary (interface 2.5.6). Multi-paladin sync requires
+For WoW Classic TBC Anniversary (interface 2.5.6) and WoW Forever (interface
+1.60.1), from one download. Multi-paladin sync requires
 every paladin to run a compatible version; the addon announces in chat when
 someone in the group is out of date.
 

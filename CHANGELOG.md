@@ -4,6 +4,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) /
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Sync protocol
 bumps are called out — mismatched clients ignore each other's messages.
 
+## [0.38.0] - 2026-09-26
+
+### Added
+- Support for WoW Forever (1.60.1).
+- A paladin's first learned blessing is assigned to themselves automatically,
+  together with their first aura, so the cast bar shows up right away.
+
+### Fixed
+- The cast bar now shows when an aura is known but none is assigned.
+- Long timers such as "59m" now fit inside the cast bar icons.
+- Sync messages held back by the client are sent later instead of lost.
+
 ## [0.37.2] - 2026-08-20
 
 ### Fixed
