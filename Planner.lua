@@ -780,3 +780,62 @@ function Planner.Run()
 	end
 	return true, summary
 end
+
+-- first-blessing onboarding ---------------------------------------------------
+-- A levelling paladin with an empty plan never sees the cast bar, so the addon
+-- stays invisible until someone opens the window. The moment the FIRST blessing
+-- is learned (never again after that, and never at login) that blessing goes on
+-- the paladin's own class row, plus the first known aura when none is set, so
+-- the bar appears and can be tried right away.
+
+local LEARN_SETTLE = 0.5 -- seconds for the spellbook to include the new spell
+
+local function HasOwnDuties(plan, me)
+	for _, assign in pairs(plan.class[me] or {}) do
+		if assign.id then
+			return true
+		end
+	end
+	return next(plan.player[me] or {}) ~= nil
+end
+
+local function OnFirstBlessing(spellName)
+	if select(2, UnitClass("player")) ~= "PALADIN" then
+		return
+	end
+	HO.Data.Refresh()
+	local known = HO.Data.KnownBlessings()
+	if #known ~= 1 or HO.Data.blessings[known[1]].name ~= spellName then
+		return -- not the first blessing, or not a blessing at all
+	end
+	local me = HO.FullName("player")
+	local plan = HO.Plan.Active()
+	if not me or HasOwnDuties(plan, me) then
+		return
+	end
+	local blessingID = known[1]
+	HO.Plan.SetClassAssignment(me, "PALADIN", blessingID, "auto")
+	local auras = HO.Data.KnownAuras()
+	if not HO.Plan.GetAura(me) and auras[1] then
+		HO.Plan.SetAura(me, auras[1])
+	end
+	HO.Log("planner", "first blessing learned: assigned " .. tostring(spellName) .. " to self")
+	HO.Print(string.format(HO.L["you learned %s — it is now assigned to yourself; click the cast bar to use it"], spellName))
+	if HO.Bar and HO.Bar.Refresh then
+		HO.Bar.Refresh()
+	end
+	if HO.Window and HO.Window.Refresh then
+		HO.Window.Refresh()
+	end
+end
+
+if HO.Compat.EventExists("LEARNED_SPELL_IN_SKILL_LINE") then
+	HO.RegisterEvent("LEARNED_SPELL_IN_SKILL_LINE", function(spellID)
+		local spellName = spellID and HO.Compat.SpellNameIcon(spellID)
+		if spellName then
+			C_Timer.After(LEARN_SETTLE, function()
+				OnFirstBlessing(spellName)
+			end)
+		end
+	end)
+end

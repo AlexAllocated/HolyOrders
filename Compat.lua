@@ -237,6 +237,17 @@ end
 Compat.TALENT_EVENTS = Compat.HAS_TALENT_TABS and { "CHARACTER_POINTS_CHANGED" }
 	or { "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED" }
 
+-- events ------------------------------------------------------------------------
+
+-- registering an event the client does not know throws on the modern client,
+-- so optional events are checked first (assumed present where no check exists)
+function Compat.EventExists(event)
+	if C_EventUtils and C_EventUtils.IsEventValid then
+		return C_EventUtils.IsEventValid(event)
+	end
+	return true
+end
+
 -- addon comms -------------------------------------------------------------------
 
 -- true while the client refuses outgoing addon messages (the modern client

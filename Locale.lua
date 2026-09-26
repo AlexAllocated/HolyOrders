@@ -28,6 +28,8 @@ L["Log sync messages (debug)"] = "Sync-Nachrichten protokollieren (Debug)"
 L["Keep cast bar above other windows"] = "Leiste über anderen Fenstern halten"
 -- options sections
 L["General"] = "Allgemein"
+-- first-blessing onboarding
+L["you learned %s — it is now assigned to yourself; click the cast bar to use it"] = "%s gelernt — ist jetzt dir selbst zugeteilt; klicke die Buffleiste zum Wirken"
 L["Group"] = "Gruppe"
 L["Cast bar"] = "Buffleiste"
 L["Windows & skin"] = "Fenster & Skin"

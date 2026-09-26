@@ -111,7 +111,18 @@ function Data.RefreshAuras()
 	Data.selfBuff.known = (name and book[name]) ~= nil
 end
 
--- ids of known auras in id order (mirrors the blessing helpers)
+-- ids of known blessings in id order
+function Data.KnownBlessings()
+	local ids = {}
+	for id, blessing in ipairs(Data.blessings) do
+		if blessing.known then
+			ids[#ids + 1] = id
+		end
+	end
+	return ids
+end
+
+-- ids of known auras in id order (mirrors the blessing helper)
 function Data.KnownAuras()
 	local ids = {}
 	for id, aura in ipairs(Data.auras) do
