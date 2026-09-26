@@ -1591,9 +1591,10 @@ function Bar.Refresh()
 	RefreshSelfBuffButton()
 	local isPally = select(2, UnitClass("player")) == "PALADIN"
 	-- the aura slot is always relevant to a paladin, so the bar shows when there
-	-- are duties OR an aura is assigned (so the aura button is reachable to wheel)
+	-- are duties OR an aura is assigned OR any aura is known — otherwise a
+	-- paladin with no aura chosen yet could never reach the button to wheel one in
 	local me = HO.FullName("player")
-	local hasAura = me and HO.Plan.GetAura(me)
+	local hasAura = (me and HO.Plan.GetAura(me)) or #HO.Data.KnownAuras() > 0
 	-- the self-buff slot keeps the bar reachable too, so a protection paladin
 	-- without duties still sees their threat buff status
 	if isPally and not BarOptions().hidden and (shown > 0 or hasAura or SelfBuffRelevant()) then
