@@ -105,6 +105,10 @@ end
 
 local function DrainTick()
 	Refill()
+	-- comms locked (restricted content): hold the queue, the ticker retries
+	if HO.Compat.AddonCommsLocked() then
+		return
+	end
 	while sendQueue[1] and tokens >= 1 do
 		local item = table.remove(sendQueue, 1)
 		if ChannelAlive(item.channel, item.target) then
@@ -122,7 +126,7 @@ end
 
 local function Throttle(wire, channel, target, msgType)
 	-- once anything is queued everything queues behind it, so order never breaks
-	if #sendQueue == 0 then
+	if #sendQueue == 0 and not HO.Compat.AddonCommsLocked() then
 		Refill()
 		if tokens >= 1 then
 			if ChannelAlive(channel, target) then
