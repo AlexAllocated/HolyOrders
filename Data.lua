@@ -40,7 +40,8 @@ Data.selfBuff = { base = 25780 }
 
 Data.SYMBOL_OF_KINGS = 21177 -- reagent for greater blessings
 
--- eligibility (SPEC-planner §2); manual per-member overrides may bypass this
+-- eligibility (SPEC-planner §2): the auto-planner's "useful blessing" rules.
+-- Manual assignments are only bound by Data.IsAllowed below.
 local NO_WISDOM = { WARRIOR = true, ROGUE = true }
 local NO_MIGHT = { MAGE = true, WARLOCK = true, PRIEST = true }
 
@@ -59,6 +60,17 @@ function Data.IsEligible(classToken, blessingID, isTank)
 		return false
 	end
 	return true
+end
+
+-- the hard rule every assignment obeys, manual ones included: never Salvation
+-- on a tank. Whether a blessing is USEFUL for a class (Might on a priest) is
+-- the planner's concern (Data.IsEligible), not a restriction on the user.
+function Data.IsAllowed(blessingID, isTank)
+	local blessing = Data.blessings[blessingID]
+	if not blessing then
+		return false
+	end
+	return not (blessing.key == "SALVATION" and isTank)
 end
 
 -- spellbook resolution -------------------------------------------------------

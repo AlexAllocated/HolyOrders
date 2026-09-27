@@ -71,9 +71,10 @@ local function BlessingName(id)
 	return blessing and (blessing.name or blessing.key) or tostring(id)
 end
 
--- next assignable blessing for a class cell (0 = none); eligibility filtered,
+-- next assignable blessing for a class cell (0 = none). A manual choice, so any
+-- castable blessing qualifies (the usefulness rules only bind the auto-planner);
 -- availability best-effort (exact for the player, permissive for remotes)
-local function CycleClassBlessing(pally, classToken, current, delta)
+local function CycleClassBlessing(pally, current, delta)
 	delta = delta or 1
 	local id = current or 0
 	for _ = 1, HO.Data.NUM_BLESSINGS + 1 do
@@ -81,7 +82,7 @@ local function CycleClassBlessing(pally, classToken, current, delta)
 		if id == 0 then
 			return 0
 		end
-		if HO.Data.IsEligible(classToken, id, false) and HO.Planner.IsAvailable(pally, id) then
+		if HO.Planner.IsAvailable(pally, id) then
 			return id
 		end
 	end
@@ -102,7 +103,7 @@ function Window.CycleMyClass(classToken, delta)
 	-- unassigned class), so wheel-up lands on the first blessing and wheel-down on
 	-- the last. This ring NEVER produces the true-clear state — that stays a
 	-- right-click in the assignment window.
-	local nextID = CycleClassBlessing(me, classToken, cur and cur.id or 0, delta)
+	local nextID = CycleClassBlessing(me, cur and cur.id or 0, delta)
 	if nextID == 0 then
 		HO.Plan.SetClassNone(me, classToken)
 	else
@@ -243,7 +244,7 @@ local function ClassCellClick(cell, mouseBtn)
 			HO.Plan.SetClassAssignment(cell.pally, cell.classToken, cur.id, nextMode)
 		end
 	else
-		local nextID = CycleClassBlessing(cell.pally, cell.classToken, cur and cur.id or 0)
+		local nextID = CycleClassBlessing(cell.pally, cur and cur.id or 0)
 		HO.Plan.SetClassAssignment(cell.pally, cell.classToken, nextID, cur and cur.mode or nil)
 	end
 	RefreshAll()
@@ -1136,7 +1137,7 @@ function Window.Refresh()
 								local classAssign = plan.class[pallys[c]] and plan.class[pallys[c]][entry.class]
 								-- a none-marked class assignment (no id) inherits NOTHING: the
 								-- member cell shows empty, not a none icon
-								if classAssign and classAssign.id and HO.Data.IsEligible(entry.class, classAssign.id, HO.Plan.IsTank(entry.name, entry.tankRole)) then
+								if classAssign and classAssign.id and HO.Data.IsAllowed(classAssign.id, HO.Plan.IsTank(entry.name, entry.tankRole)) then
 									inheritedID = classAssign.id
 								end
 							end

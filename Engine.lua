@@ -281,7 +281,9 @@ function Engine.Update()
 				Engine.classMembers[poolClass] = Engine.classMembers[poolClass] or {}
 				table.insert(Engine.classMembers[poolClass], member)
 				if blessingID and blessingID > 0 then
-					if isOverride or entry.isPet or HO.Data.IsEligible(entry.class, blessingID, isTank) then
+					-- class rows may hold any blessing the user chose; only the
+					-- hard tank rule (no Salvation) filters members out
+					if isOverride or entry.isPet or HO.Data.IsAllowed(blessingID, isTank) then
 						pools[poolClass] = pools[poolClass] or {}
 						-- keep the display row so the buff/range check below fills it in
 						table.insert(pools[poolClass], { entry = entry, blessingID = blessingID, isOverride = isOverride, member = member })
