@@ -4,6 +4,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) /
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Sync protocol
 bumps are called out — mismatched clients ignore each other's messages.
 
+## [0.39.0] - 2026-10-03
+
+### Added
+- Any castable blessing can be assigned to a class row by hand; the
+  auto-planner keeps its usefulness rules.
+- The Righteous Fury button also shows for tanks, plus an option to always
+  show it.
+
+### Fixed
+- Auto no longer assigns blessings the paladin does not know.
+- Newly learned blessings are shared with the other paladins right away.
+
 ## [0.38.0] - 2026-09-26
 
 ### Added
