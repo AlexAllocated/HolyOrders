@@ -109,7 +109,13 @@ local function PlaceAtOffset(frame, offset)
 	end
 end
 
--- protection paladins get the threat self-buff slot; everyone else does not
+local function BarOptions()
+	HO.db.options.bar = HO.db.options.bar or {}
+	return HO.db.options.bar
+end
+
+-- protection paladins and tanks get the threat self-buff slot (or everyone,
+-- when the option says so); everyone else does not
 local function SelfBuffRelevant()
 	if select(2, UnitClass("player")) ~= "PALADIN" then
 		return false
@@ -117,7 +123,17 @@ local function SelfBuffRelevant()
 	if not (HO.Data.selfBuff and HO.Data.selfBuff.known) then
 		return false
 	end
-	return HO.Planner and HO.Planner.OwnSpec and HO.Planner.OwnSpec() == "protection"
+	if BarOptions().fury then
+		return true -- the user wants the slot regardless of spec
+	end
+	if HO.Planner and HO.Planner.OwnSpec and HO.Planner.OwnSpec() == "protection" then
+		return true
+	end
+	-- a tank by role or mark: covers clients where talents cannot reveal the
+	-- spec (no spec tabs on the trait-based client)
+	local me = HO.FullName("player")
+	local myEntry = me and HO.Roster.byName[me]
+	return me ~= nil and HO.Plan.IsTank(me, myEntry and myEntry.tankRole)
 end
 
 -- place a class button into the nth visible slot (slot 0 is the aura button,
@@ -198,11 +214,6 @@ local function LayoutBar()
 		PlaceAtOffset(selfBuffButton, HandleAlong() + GAP + (BUTTON_SIZE + GAP))
 	end
 	lastGrow = HO.db.options.bar and HO.db.options.bar.grow or "right"
-end
-
-local function BarOptions()
-	HO.db.options.bar = HO.db.options.bar or {}
-	return HO.db.options.bar
 end
 
 -- the client re-anchors a dragged frame to the nearest corner, so the full

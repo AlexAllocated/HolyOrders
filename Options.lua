@@ -144,6 +144,15 @@ local function BuildOptionsTable()
 							end
 						end,
 					},
+					fury = {
+						type = "toggle", name = L["Always show the Righteous Fury button"], order = 2.5, width = "full",
+						desc = L["Shows the Righteous Fury button even when you are not detected as a protection paladin or tank."],
+						get = function() return Options.Ensure().bar.fury == true end,
+						set = function(_, v)
+							Options.Ensure().bar.fury = v
+							HO.Bar.Refresh()
+						end,
+					},
 					grow = {
 						type = "select", name = L["Bar grows"], order = 3,
 						desc = L["The direction in which the bar's buttons line up, starting at the handle."],

@@ -26,6 +26,8 @@ L["Show status messages in chat"] = "Statusmeldungen im Chat anzeigen"
 L["Share assignments with legacy blessing addons"] = "Zuteilungen mit älteren Segens-Addons teilen"
 L["Log sync messages (debug)"] = "Sync-Nachrichten protokollieren (Debug)"
 L["Keep cast bar above other windows"] = "Leiste über anderen Fenstern halten"
+L["Always show the Righteous Fury button"] = "Zorn-der-Gerechtigkeit-Knopf immer anzeigen"
+L["Shows the Righteous Fury button even when you are not detected as a protection paladin or tank."] = "Zeigt den Knopf für Zorn der Gerechtigkeit auch dann, wenn du nicht als Schutz-Paladin oder Tank erkannt wirst."
 -- options sections
 L["General"] = "Allgemein"
 -- first-blessing onboarding
