@@ -233,6 +233,61 @@ function Compat.ForEachOwnTalent(onTalent)
 	end
 end
 
+-- debug snapshot of the trait layout (trait client only): which configs and
+-- trees exist, points per tree, and every invested node, so own-spec
+-- detection can be built against the real tree structure
+local function DescribeTraitsCore(lines)
+	local function add(fmt, ...)
+		lines[#lines + 1] = string.format(fmt, ...)
+	end
+	local sis = C_SpecializationInfo
+	if sis and sis.GetSpecialization then
+		local index = sis.GetSpecialization()
+		add("spec index=%s", tostring(index))
+		if index and sis.GetSpecializationInfo then
+			local id, name, _, _, role = sis.GetSpecializationInfo(index)
+			add("spec id=%s name=%s role=%s", tostring(id), tostring(name), tostring(role))
+		end
+	end
+	for _, configID in ipairs(TraitConfigIDs()) do
+		local config = C_Traits.GetConfigInfo(configID)
+		add("config %s type=%s name=%s", tostring(configID), tostring(config and config.type), tostring(config and config.name))
+		for _, treeID in ipairs(config and config.treeIDs or {}) do
+			local spent, invested = 0, {}
+			for _, nodeID in ipairs(C_Traits.GetTreeNodes(treeID) or {}) do
+				local node = C_Traits.GetNodeInfo(configID, nodeID)
+				local rank = node and (node.activeRank or node.currentRank) or 0
+				if rank > 0 then
+					spent = spent + rank
+					local entryID = node.activeEntry and node.activeEntry.entryID
+					local entry = entryID and C_Traits.GetEntryInfo(configID, entryID)
+					local definition = entry and entry.definitionID and C_Traits.GetDefinitionInfo(entry.definitionID)
+					local spellID = definition and (definition.overriddenSpellID or definition.spellID)
+					invested[#invested + 1] = string.format("  node %s rank=%d spell=%s %s x=%s y=%s sub=%s",
+						tostring(nodeID), rank, tostring(spellID), tostring(spellID and C_Spell.GetSpellName(spellID)),
+						tostring(node.posX), tostring(node.posY), tostring(node.subTreeID))
+				end
+			end
+			add(" tree %s spent=%d", tostring(treeID), spent)
+			for _, line in ipairs(invested) do
+				lines[#lines + 1] = line
+			end
+		end
+	end
+end
+
+function Compat.DescribeTraits()
+	if Compat.HAS_TALENT_TABS or not (C_Traits and C_Traits.GetConfigInfo) then
+		return nil
+	end
+	local lines = {}
+	local ok, err = pcall(DescribeTraitsCore, lines)
+	if not ok then
+		lines[#lines + 1] = "error: " .. tostring(err)
+	end
+	return lines
+end
+
 -- events that signal a talent change on this client
 Compat.TALENT_EVENTS = Compat.HAS_TALENT_TABS and { "CHARACTER_POINTS_CHANGED" }
 	or { "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED" }

@@ -306,6 +306,7 @@ HO.commands["dump"] = function()
 			entry.online and "" or " offline"
 		))
 	end
+	dump.traits = HO.Compat.DescribeTraits()
 	HO.db.dump = dump
 	HO.Log("dump", "state snapshot stored")
 	HO.Print("state snapshot stored in SavedVariables — do /reload (or log out) so it is written to disk")
