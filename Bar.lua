@@ -520,7 +520,7 @@ end
 -- clicking a row casts the member's assigned SINGLE blessing on them. Secure
 -- attributes may only change out of combat; the caller guarantees that.
 local function ConfigureRowSecure(row, m)
-	local blessing = m.blessingID and HO.Data.blessings[m.blessingID]
+	local blessing = m.castBlessingID and HO.Data.blessings[m.castBlessingID]
 	if blessing and blessing.name and m.unit then
 		row:SetAttribute("type1", "spell")
 		row:SetAttribute("spell1", blessing.name) -- the 10-min single
@@ -1530,7 +1530,6 @@ function Bar.Refresh()
 	-- one click edge, following the user's cvar (defaults to cast-on-up). Kept in
 	-- sync out of combat so the OnClick wrap runs exactly once per click.
 	local clickEdge = (GetCVarBool and GetCVarBool("ActionButtonUseKeyDown")) and "AnyDown" or "AnyUp"
-	local haveSymbols = HO.Data.SymbolCount() > 0 -- gates the right-click greater
 	for i, classToken in ipairs(CLASS_ORDER) do
 		local btn = buttons[i]
 		local task = HO.Engine.tasks[classToken]
@@ -1547,29 +1546,10 @@ function Bar.Refresh()
 					btn.bg:SetVertexColor(0, 0, 0, 0.8)
 				end
 			end
-			local blessing = HO.Data.blessings[task.blessingID]
-			-- right-click: ALWAYS the greater blessing of this duty (one cast covers
-			-- the whole class) when it is known and a Symbol of Kings is on hand —
-			-- falls back to the single otherwise. Anchored to the engine's target or
-			-- any class member, so it also works as a re-buff when all are covered.
-			local rightSpell = task.singleSpellName or (blessing and blessing.name)
-			local rightIsGreater = false
-			if blessing and blessing.greaterKnown and blessing.greaterName and haveSymbols then
-				rightSpell = blessing.greaterName
-				rightIsGreater = true
-			end
-			local rightUnit = task.unit
-			if not rightUnit then
-				for _, m in ipairs(HO.Engine.ClassMembers(classToken)) do
-					if not m.isPet and m.unit then
-						rightUnit = m.unit
-						break
-					end
-				end
-			end
-			btn.rightSpell, btn.rightIsGreater = rightSpell, rightIsGreater
-			btn:SetAttribute("spell2", rightSpell)
-			btn:SetAttribute("unit2", rightUnit)
+			local actions = HO.Engine.ClassActions(classToken)
+			btn.rightSpell, btn.rightIsGreater = actions.rightSpell, actions.rightIsGreater
+			btn:SetAttribute("spell2", actions.rightSpell)
+			btn:SetAttribute("unit2", actions.rightUnit)
 			-- out-of-combat left-click: the engine's planned cast on its chosen
 			-- target. In combat the secure OnClick wrap rewrites this macro per
 			-- click to cycle the class's members, so no combat clauses are needed.
@@ -1578,37 +1558,13 @@ function Bar.Refresh()
 				macro = "/cast [@" .. task.unit .. ",help,nodead] " .. task.spellName
 			end
 			btn:SetAttribute("macrotext1", macro)
-			-- bake the combat-cycle data as paired attributes, one per target:
-			--   players → by name (stable across roster shifts), with the GREATER
-			--   when the engine would use it (one cast covers the class incl. its
-			--   pets), else their OWN assigned single (overrides may differ);
-			--   pets → by unit token (no reliable name targeting), with their own
-			--   single — skipped in greater mode, which reaches them anyway
-			local useGreater = blessing and blessing.greaterName and HO.Engine.WouldUseGreater(classToken)
-			local n = 0
-			for _, m in ipairs(HO.Engine.ClassMembers(classToken)) do
-				if n >= FLYOUT_MAX_ROWS then
-					break
-				end
-				local targetRef, targetSpell
-				if m.isPet then
-					if not useGreater then
-						local mb = m.blessingID and HO.Data.blessings[m.blessingID]
-						targetRef, targetSpell = m.unit, mb and mb.name
-					end
-				else
-					if useGreater then
-						targetRef, targetSpell = m.name, blessing.greaterName
-					else
-						local mb = m.blessingID and HO.Data.blessings[m.blessingID]
-						targetRef, targetSpell = m.name, mb and mb.name
-					end
-				end
-				if targetRef and targetSpell then
-					n = n + 1
-					btn:SetAttribute("cycleName" .. n, targetRef)
-					btn:SetAttribute("cycleSpell" .. n, targetSpell)
-				end
+			-- The engine applies the same eligibility rules to flyout singles,
+			-- right-click rebuffs and the frozen combat cycle.
+			local n = math.min(#actions.cycle, FLYOUT_MAX_ROWS)
+			for index = 1, n do
+				local action = actions.cycle[index]
+				btn:SetAttribute("cycleName" .. index, action.target)
+				btn:SetAttribute("cycleSpell" .. index, action.spell)
 			end
 			for k = n + 1, btn.cycleBaked or 0 do
 				btn:SetAttribute("cycleName" .. k, nil)

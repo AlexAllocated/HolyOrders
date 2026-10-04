@@ -12,8 +12,8 @@ local FRESH_AGE = 120 -- force mode: buffs older than this are re-cast
 local FORCE_DURATION = 300 -- force mode safety timeout
 
 Engine.tasks = {} -- [classToken] = task table, built in Update()
--- display-only per-member buff status, consumed by the bar fly-out. Rebuilt each
--- Update() from the same pool data; it NEVER influences a cast decision.
+-- Per-member status and eligible single-target actions, consumed by the bar.
+-- blessingID describes the assignment; castBlessingID applies the tank rule.
 -- [classToken] = { {name, unit, isPet, owner, blessingID, hasBuff, inRange}, ... }
 Engine.classMembers = {}
 Engine.forceUntil = nil
@@ -93,8 +93,8 @@ end
 -- OWNER's class takes one slot of a ranked list (the configured pet blessing,
 -- then Kings, then Might — and Wisdom on pets that actually run on mana), so
 -- several paladins stack blessings instead of all duplicating the same one.
--- Ranking is by sorted paladin name over the synced plan, so every client
--- computes the same split. Returns rank-ordered { { pally, id or nil }, ... };
+-- Ties use sorted paladin names and the shared capability checks, so every
+-- client computes the same split. Returns name-ordered { { pally, id or nil }, ... };
 -- a nil id means that paladin has no pet duty (more coverers than blessings).
 function Engine.PetSplit(entry)
 	local plan = HO.Plan.Active()
@@ -127,9 +127,30 @@ function Engine.PetSplit(entry)
 	if entry.unit and UnitPowerType(entry.unit) == 0 then
 		add(1) -- Wisdom, only for pets that actually run on mana
 	end
+	-- Find a matching in blessing priority order. Moving an earlier duty to
+	-- another capable caster can free the only Kings caster without dropping
+	-- the configured first blessing. Sorted names make ties deterministic.
+	local duties = {}
+	local function place(id, visited)
+		-- Prefer a free caster before rearranging an earlier duty.
+		for pass = 1, 2 do
+			for _, pally in ipairs(covering) do
+				if (duties[pally] == nil) == (pass == 1) and not visited[pally]
+					and HO.Planner.IsAvailable(pally, id) then
+					visited[pally] = true
+					if not duties[pally] or place(duties[pally], visited) then
+						duties[pally] = id
+						return true
+					end
+				end
+			end
+		end
+		return false
+	end
+	for _, id in ipairs(list) do place(id, {}) end
 	local split = {}
 	for i, pally in ipairs(covering) do
-		split[i] = { pally = pally, id = list[i] }
+		split[i] = { pally = pally, id = duties[pally] }
 	end
 	return split
 end
@@ -142,7 +163,8 @@ local function TargetBlessing(plan, me, entry)
 		-- the member as a class-wide target so greater blessings stay possible
 		local assigns = plan.class[me]
 		local assign = assigns and entry.class and assigns[entry.class]
-		if assign and not entry.isPet and assign.id == override then
+		if assign and not entry.isPet and assign.id == override
+			and HO.Data.IsAllowed(override, HO.Plan.IsTank(entry.name, entry.tankRole)) then
 			return assign.id, false
 		end
 		return override, true
@@ -229,6 +251,48 @@ function Engine.ClassMembers(classToken)
 	return Engine.classMembers[classToken] or {}
 end
 
+-- Build secure actions from assignments, not from whichever task happens to
+-- be next. A combat cycle uses singles when a greater would erase an override
+-- or hit a member excluded by the tank rule.
+function Engine.ClassActions(classToken)
+	local me = HO.FullName("player")
+	local rows = HO.Plan.Active().class[me]
+	local assign = rows and rows[classToken]
+	local blessing = assign and HO.Data.blessings[assign.id]
+	local members = Engine.ClassMembers(classToken)
+	local safeGreater = blessing and blessing.greaterKnown and blessing.greaterName
+		and HO.Data.SymbolCount() > 0
+	local anchor
+	for _, member in ipairs(members) do
+		if not member.isPet then
+			if not assign or member.isOverride or member.castBlessingID ~= assign.id then
+				safeGreater = false
+			elseif member.unit and not anchor then
+				anchor = member.unit
+			end
+		end
+	end
+	local actions = { cycle = {} }
+	if anchor and blessing then
+		actions.rightSpell = safeGreater and blessing.greaterName or blessing.name
+		actions.rightUnit = anchor
+		actions.rightIsGreater = safeGreater and true or false
+	end
+	local useGreater = safeGreater and Engine.WouldUseGreater(classToken)
+	for _, member in ipairs(members) do
+		local single = member.castBlessingID and HO.Data.blessings[member.castBlessingID]
+		local target = member.isPet and member.unit or member.name
+		if single and single.name and target then
+			local spell = (useGreater and not member.isPet) and blessing.greaterName or single.name
+			actions.cycle[#actions.cycle + 1] = { target = target, spell = spell }
+			if not actions.rightSpell then
+				actions.rightSpell, actions.rightUnit = single.name, member.unit
+			end
+		end
+	end
+	return actions
+end
+
 function Engine.Update()
 	wipe(Engine.tasks)
 	wipe(greaterVerdict)
@@ -260,17 +324,21 @@ function Engine.Update()
 			end
 			if poolClass then
 				-- display row for the fly-out: every member is listed (even with no
-				-- assigned blessing); hasBuff/inRange are filled below for pooled
-				-- members. This is purely for display and never gates a cast.
+				-- assigned blessing); castBlessingID separately records eligibility,
+				-- and hasBuff/inRange are filled below for pooled members.
 				-- display-only: the member's top-ranked buff request (nil for pets,
 				-- which never send requests); never affects a cast
 				local reqID = TopRequest(entry.name)
+				local eligible = blessingID and blessingID > 0
+					and (isOverride or entry.isPet or HO.Data.IsAllowed(blessingID, isTank))
 				local member = {
 					name = entry.name,
 					unit = entry.unit,
 					isPet = entry.isPet or nil,
 					owner = entry.owner,
 					blessingID = (blessingID and blessingID > 0) and blessingID or nil,
+					castBlessingID = eligible and blessingID or nil,
+					isOverride = isOverride,
 					requestID = reqID,
 					-- does the member already HAVE the requested blessing, from ANY
 					-- paladin? (feeds the fly-out badge tint; per-paladin comparisons
@@ -283,7 +351,7 @@ function Engine.Update()
 				if blessingID and blessingID > 0 then
 					-- class rows may hold any blessing the user chose; only the
 					-- hard tank rule (no Salvation) filters members out
-					if isOverride or entry.isPet or HO.Data.IsAllowed(blessingID, isTank) then
+					if eligible then
 						pools[poolClass] = pools[poolClass] or {}
 						-- keep the display row so the buff/range check below fills it in
 						table.insert(pools[poolClass], { entry = entry, blessingID = blessingID, isOverride = isOverride, member = member })
