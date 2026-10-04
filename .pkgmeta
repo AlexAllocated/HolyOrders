@@ -12,6 +12,7 @@ ignore:
   - docs
   - media
   - scripts
+  - tests
   - dist
 
 manual-changelog:
