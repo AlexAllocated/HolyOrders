@@ -4,6 +4,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) /
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Sync protocol
 bumps are called out — mismatched clients ignore each other's messages.
 
+## [0.40.0] - 2026-10-04
+
+### Added
+- The Righteous Fury button shows a countdown and turns red when less than
+  three minutes are left.
+- Your own spec is detected from your talents on WoW Forever, so the
+  Righteous Fury button also appears for protection paladins outside a group.
+
 ## [0.39.0] - 2026-10-03
 
 ### Added
