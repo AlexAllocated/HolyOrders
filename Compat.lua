@@ -186,32 +186,95 @@ local function TraitConfigIDs()
 	return ids
 end
 
--- calls fn(icon, rank) for every trait the player has invested in
+-- The trait client lays the three classic talent trees side by side in ONE
+-- class tree. Node x positions form evenly spaced columns inside each classic
+-- tree, with a wider gap between trees; the two widest gaps split the tree into
+-- tabs 1..3, left to right (classic tab order). Returns posX -> tab, or nil
+-- when the layout does not split cleanly (then no spec is derived at all).
+local SPEC_TREES = 3
+local TREE_GAP_FACTOR = 1.5 -- a tree gap must clearly exceed every column gap
+
+local function SplitTrees(xs)
+	local unique, seen = {}, {}
+	for _, x in ipairs(xs) do
+		if not seen[x] then
+			seen[x] = true
+			unique[#unique + 1] = x
+		end
+	end
+	if #unique < SPEC_TREES then
+		return nil
+	end
+	table.sort(unique)
+	local gaps = {}
+	for i = 1, #unique - 1 do
+		gaps[#gaps + 1] = { size = unique[i + 1] - unique[i], at = i }
+	end
+	table.sort(gaps, function(a, b)
+		if a.size ~= b.size then
+			return a.size > b.size
+		end
+		return a.at < b.at
+	end)
+	local column = gaps[SPEC_TREES] and gaps[SPEC_TREES].size
+	if column and gaps[SPEC_TREES - 1].size < column * TREE_GAP_FACTOR then
+		return nil
+	end
+	local firstEnd = unique[math.min(gaps[1].at, gaps[2].at)]
+	local secondEnd = unique[math.max(gaps[1].at, gaps[2].at)]
+	return function(x)
+		if x <= firstEnd then
+			return 1
+		elseif x <= secondEnd then
+			return 2
+		end
+		return 3
+	end
+end
+
+-- calls fn(tab, icon, rank) for every node of every trait tree (rank 0 included,
+-- icon only for invested nodes). Nodes of the active class tree carry their
+-- classic tab when the layout splits cleanly; everything else reports tab 0.
 local function ForEachTrait(fn)
+	local classConfig
+	if C_ClassTalents and C_ClassTalents.GetActiveConfigID then
+		local ok, id = pcall(C_ClassTalents.GetActiveConfigID)
+		classConfig = ok and id or nil
+	end
 	for _, configID in ipairs(TraitConfigIDs()) do
 		local config = C_Traits.GetConfigInfo(configID)
 		for _, treeID in ipairs(config and config.treeIDs or {}) do
+			local nodes, xs = {}, {}
 			for _, nodeID in ipairs(C_Traits.GetTreeNodes(treeID) or {}) do
 				local node = C_Traits.GetNodeInfo(configID, nodeID)
-				local rank = node and (node.activeRank or node.currentRank) or 0
-				local entryID = node and node.activeEntry and node.activeEntry.entryID
+				if node then
+					nodes[#nodes + 1] = node
+					if node.posX then
+						xs[#xs + 1] = node.posX
+					end
+				end
+			end
+			local tabOf = (configID == classConfig) and SplitTrees(xs) or nil
+			for _, node in ipairs(nodes) do
+				local rank = node.activeRank or node.currentRank or 0
+				local icon
+				local entryID = node.activeEntry and node.activeEntry.entryID
 				if rank > 0 and entryID then
 					local entry = C_Traits.GetEntryInfo(configID, entryID)
 					local definition = entry and entry.definitionID and C_Traits.GetDefinitionInfo(entry.definitionID)
 					local spellID = definition and (definition.overriddenSpellID or definition.spellID)
-					local icon = spellID and C_Spell.GetSpellTexture(spellID)
-					if icon then
-						fn(icon, rank)
-					end
+					icon = spellID and C_Spell.GetSpellTexture(spellID)
 				end
+				local tab = (tabOf and node.posX) and tabOf(node.posX) or 0
+				fn(tab, icon, rank)
 			end
 		end
 	end
 end
 
--- calls onTalent(tab, icon, rank) for each own talent. On the trait client there
--- are no ordered spec tabs, so every talent reports tab 0 and callers must not
--- read a spec from tab totals.
+-- calls onTalent(tab, icon, rank) for each own talent. On the trait client the
+-- tab comes from the class tree's layout (see SplitTrees); talents outside it,
+-- or a layout that does not split cleanly, report tab 0 (no spec read).
 function Compat.ForEachOwnTalent(onTalent)
 	if Compat.HAS_TALENT_TABS then
 		for tab = 1, GetNumTalentTabs() do
@@ -225,9 +288,7 @@ function Compat.ForEachOwnTalent(onTalent)
 	if not (C_Traits and C_Traits.GetConfigInfo) then
 		return
 	end
-	local ok, err = pcall(ForEachTrait, function(icon, rank)
-		onTalent(0, icon, rank)
-	end)
+	local ok, err = pcall(ForEachTrait, onTalent)
 	if not ok then
 		HO.Log("talents", "trait scan failed: " .. tostring(err))
 	end
@@ -253,9 +314,12 @@ local function DescribeTraitsCore(lines)
 		local config = C_Traits.GetConfigInfo(configID)
 		add("config %s type=%s name=%s", tostring(configID), tostring(config and config.type), tostring(config and config.name))
 		for _, treeID in ipairs(config and config.treeIDs or {}) do
-			local spent, invested = 0, {}
+			local spent, invested, columns = 0, {}, {}
 			for _, nodeID in ipairs(C_Traits.GetTreeNodes(treeID) or {}) do
 				local node = C_Traits.GetNodeInfo(configID, nodeID)
+				if node and node.posX then
+					columns[node.posX] = (columns[node.posX] or 0) + 1
+				end
 				local rank = node and (node.activeRank or node.currentRank) or 0
 				if rank > 0 then
 					spent = spent + rank
@@ -269,6 +333,17 @@ local function DescribeTraitsCore(lines)
 				end
 			end
 			add(" tree %s spent=%d", tostring(treeID), spent)
+			-- every node column (x=count), to verify the classic-tree split
+			local xs = {}
+			for x in pairs(columns) do
+				xs[#xs + 1] = x
+			end
+			table.sort(xs)
+			local parts = {}
+			for _, x in ipairs(xs) do
+				parts[#parts + 1] = x .. "=" .. columns[x]
+			end
+			add("  columns %s", table.concat(parts, " "))
 			for _, line in ipairs(invested) do
 				lines[#lines + 1] = line
 			end

@@ -25,7 +25,8 @@ function Talents.Scan()
 	end
 
 	HO.Compat.ForEachOwnTalent(function(tab, icon, rank)
-		-- tab 0: the trait client has no ordered spec trees, so no tab totals
+		-- tab 0: no classic tree known for this talent (outside the class tree,
+		-- or a trait layout that did not split cleanly) — no tab totals
 		if tab > 0 then
 			Talents.tabPoints[tab] = (Talents.tabPoints[tab] or 0) + rank
 		end

@@ -281,6 +281,7 @@ HO.commands["dump"] = function()
 		version = HO.VERSION,
 		signature = HO.db.activeSignature,
 		talentSummary = HO.Talents.SpecSummary(),
+		ownSpec = HO.Planner.OwnSpec(),
 		talentRanks = {},
 		blessings = {},
 		roster = {},
