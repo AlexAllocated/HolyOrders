@@ -11,6 +11,7 @@ local L = HO.L
 local BUTTON_SIZE = 34
 local TIMER_FIT_PADDING = 6 -- px the icon-overlay timer keeps clear of the ring
 local TIMER_MIN_FONT = 9 -- smallest size a shrunk icon-overlay timer may use
+local SELF_BUFF_LOW = 180 -- seconds left on Righteous Fury that turn its ring red
 local GAP = 5
 local HANDLE_WIDTH = 22 -- gem-node thickness (along the bar)
 local HANDLE_ACROSS = 44 -- gem-node length (across the bar); 2:1 keeps the gem round
@@ -1188,6 +1189,20 @@ local function CreateSelfBuffButton()
 	btn.frame:SetPoint("BOTTOMRIGHT", 1, -1)
 	btn.frame:SetTexture(HO.Skin.IconFrame())
 
+	-- remaining-time countdown, styled like the class buttons' timers
+	if HO.Skin.WideBar() then
+		btn.timer = btn:CreateFontString(nil, "OVERLAY", "HolyOrdersFontHighlight")
+		btn.timer:SetPoint("TOPRIGHT", -7, -6)
+		btn.timer:SetJustifyH("RIGHT")
+	else
+		btn.timer = btn:CreateFontString(nil, "OVERLAY", "HolyOrdersFontNormalLarge")
+		btn.timer:SetPoint("CENTER", btn, "CENTER", 0, 0)
+		btn.timer:SetDrawLayer("OVERLAY", 4)
+		local tf, ts = btn.timer:GetFont()
+		btn.timerFont = { face = tf, size = (ts or 14) + 3, flags = "THICKOUTLINE" }
+		btn.timer:SetFont(btn.timerFont.face, btn.timerFont.size, btn.timerFont.flags)
+	end
+
 	btn:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
 		GameTooltip:SetText(HO.Data.selfBuff.name or L["Fury"])
@@ -1204,9 +1219,10 @@ local function CreateSelfBuffButton()
 	return btn
 end
 
--- self-buff visuals: green ring while it is up, red while missing. Texture
--- work is not protected, so the state stays live in combat too; only the
--- secure spell attribute is written out of combat.
+-- self-buff visuals: green ring while it is up, red while missing or running
+-- low, plus a countdown. Texture and text work is not protected, so the state
+-- stays live in combat too; only the secure spell attribute is written out of
+-- combat.
 local function RefreshSelfBuffButton()
 	if not selfBuffButton then
 		return
@@ -1218,13 +1234,19 @@ local function RefreshSelfBuffButton()
 		end
 		return
 	end
-	local up = PlayerHasAura(buff.name)
+	local up, _, expirationTime = HO.Compat.FindBuff("player", buff.name)
+	local remaining = up and expirationTime and expirationTime > 0 and (expirationTime - GetTime()) or nil
+	local low = remaining ~= nil and remaining < SELF_BUFF_LOW
 	selfBuffButton.icon:SetTexture(buff.icon)
 	selfBuffButton.icon:SetDesaturated(not up)
 	selfBuffButton.icon:SetAlpha(up and 1 or 0.45)
+	FitTimer(selfBuffButton, up and FormatShort(remaining) or "")
+	-- the countdown takes the label's place while the buff is up (both would
+	-- overlap); a missing buff shows the label again
+	selfBuffButton.label:SetShown(not up)
 	-- rgb() returns four values; inside an and/or expression Lua truncates it
 	-- to the first one, so the call must stand alone in each branch
-	if up then
+	if up and not low then
 		selfBuffButton.frame:SetVertexColor(HO.Colors.rgb("green", 1))
 	else
 		selfBuffButton.frame:SetVertexColor(HO.Colors.rgb("red", 1))
