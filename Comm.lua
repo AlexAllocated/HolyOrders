@@ -305,6 +305,18 @@ local function Caps()
 	return table.concat(parts, ",")
 end
 
+-- Transport integrity only: detect a lost fragment even if the remaining
+-- bytes still happen to decode as a valid row.
+local function SnapshotChecksum(rows, tanks)
+	local hash = 5381
+	local function add(text)
+		for i = 1, #text do hash = (hash * 33 + text:byte(i)) % 4294967296 end
+	end
+	for _, row in ipairs(rows) do add("PR:" .. row .. "\n") end
+	for _, tank in ipairs(tanks) do add("PT:" .. tank .. "\n") end
+	return hash
+end
+
 local function SerializeRow(owner)
 	local plan = HO.Plan.Active()
 	local classParts = {}
@@ -326,56 +338,55 @@ local function SerializeRow(owner)
 		.. table.concat(classParts, "|") .. ";" .. table.concat(ovParts, "|")
 end
 
--- applies a serialized row if permitted and newer; direct table writes only
--- (never through Plan.Set*, which would echo back into Comm).
--- force = true is used by the PLANAPPLY snapshot: bulk permission is already
--- checked, so every row is adopted unconditionally (rev too, even if lower).
-local function ApplyRow(payload, sender, force)
-	local owner, revStr, classCsv, ovCsv = strsplit(";", payload)
-	if not owner then
-		return
-	end
+-- Decode without touching the active plan, so snapshots can validate every
+-- row before committing any of them. Reject malformed or duplicate entries.
+local function DecodeRow(payload)
+	local owner, revStr, classCsv, ovCsv = payload:match("^([^;]+);([^;]+);([^;]*);([^;]*)$")
 	local rev = ValidRev(revStr)
-	if not rev then
-		HO.Log("comm", "dropped row for " .. tostring(owner) .. " from " .. sender .. ": invalid rev " .. tostring(revStr))
-		return
-	end
-	if not force and not Comm.CanEdit(sender, owner) then
-		HO.Log("comm", "rejected row for " .. owner .. " from " .. sender)
-		return
-	end
-	local plan = HO.Plan.Active()
-	local localRev = Revs(plan)[owner] or 0
-	if not force then
-		-- the owner is authoritative for their own row: accept it unconditionally
-		-- and adopt its rev as sent (heals an editor who forked a foreign row via
-		-- a lost send). Everyone else needs a strictly newer revision.
-		if sender ~= owner and rev <= localRev then
-			return
-		end
-	end
-	local class = {}
-	if classCsv and classCsv ~= "" then
-		for pair in string.gmatch(classCsv, "[^|]+") do
+	if not owner or not rev then return nil end
+	local class, player = {}, {}
+	if classCsv ~= "" then
+		for pair in (classCsv .. "|"):gmatch("(.-)|") do
 			local code, id, modeCode = pair:match("^(%u)(%d)(%a)$")
 			local token = code and CODE_CLASS[code]
-			if token and HO.Data.blessings[tonumber(id)] then
-				class[token] = { id = tonumber(id), mode = CODE_MODE[modeCode] or "auto" }
+			id = tonumber(id)
+			if not token or not HO.Data.blessings[id] or not CODE_MODE[modeCode] or class[token] then
+				return nil
 			end
+			class[token] = { id = id, mode = CODE_MODE[modeCode] }
 		end
 	end
-	local player = {}
-	if ovCsv and ovCsv ~= "" then
-		for pair in string.gmatch(ovCsv, "[^|]+") do
-			local target, id = pair:match("^(.+)=(%d+)$")
-			if target and HO.Data.blessings[tonumber(id)] then
-				player[target] = tonumber(id)
-			end
+	if ovCsv ~= "" then
+		for pair in (ovCsv .. "|"):gmatch("(.-)|") do
+			local target, id = pair:match("^([^=]+)=(%d+)$")
+			id = tonumber(id)
+			if not target or not HO.Data.blessings[id] or player[target] then return nil end
+			player[target] = id
 		end
 	end
-	plan.class[owner] = class
-	plan.player[owner] = player
-	Revs(plan)[owner] = rev
+	return { owner = owner, rev = rev, class = class, player = player }
+end
+
+local function CommitRow(plan, row)
+	plan.class[row.owner] = row.class
+	plan.player[row.owner] = row.player
+	if plan.autoPlayer then plan.autoPlayer[row.owner] = nil end
+	Revs(plan)[row.owner] = row.rev
+end
+
+-- Owner greetings are authoritative; edits by others need a newer revision.
+local function ApplyRow(payload, sender)
+	local row = DecodeRow(payload)
+	if not row then
+		HO.Log("comm", "dropped invalid row from " .. sender)
+		return
+	end
+	if not Comm.CanEdit(sender, row.owner) then return end
+	local plan = HO.Plan.Active()
+	local localRev = Revs(plan)[row.owner] or 0
+	if sender ~= row.owner and row.rev <= localRev then return end
+	if sender ~= row.owner then HO.Plan.CancelArrivals(row.owner) end
+	CommitRow(plan, row)
 	return true
 end
 
@@ -595,7 +606,9 @@ end
 
 -- authoritative plan snapshot: a row for EVERY paladin in the roster (empty
 -- rows serialize as explicit clears so a de-assigned paladin's stale row cannot
--- resurrect), then the tank list as its own PT stream, then an empty PE.
+-- resurrect), then the tank list as its own PT stream. PS and PE carry
+-- both totals and PE includes a checksum. v4 peers ignore the extra fields,
+-- but updated receivers require them so lost messages cannot partially apply.
 -- override = true bypasses the CanBulk gate when authority comes from elsewhere
 -- (a remote lead's revert request routed to the snapshot holder).
 function Comm.SendPlanApply(override)
@@ -648,15 +661,18 @@ function Comm.SendPlanApply(override)
 	end
 	CancelQueued("SC")
 	CancelQueued("SP")
-	Send("PS:" .. #owners)
+	Send("PS:" .. #owners .. ";" .. #tanks)
+	local rows = {}
 	for _, owner in ipairs(owners) do
 		BumpRev(owner)
 		-- Send fragments oversize rows transparently, so a paladin with many
 		-- per-member overrides no longer loses part of the snapshot
-		Send("PR:" .. SerializeRow(owner))
+		local row = SerializeRow(owner)
+		rows[#rows + 1] = row
+		Send("PR:" .. row)
 	end
 	SendTankChunks(tanks)
-	Send("PE:" .. #owners)
+	Send("PE:" .. #owners .. ";" .. #tanks .. ";" .. SnapshotChecksum(rows, tanks))
 	HO.Log("comm", "plan apply sent: " .. #owners .. " rows")
 	return true
 end
@@ -774,6 +790,7 @@ handlers["SC"] = function(sender, payload)
 	elseif rev <= localRev then
 		return
 	end
+	HO.Plan.CancelArrivals(owner)
 	plan.class[owner] = plan.class[owner] or {}
 	if id == 0 then
 		plan.class[owner][classToken] = nil
@@ -808,6 +825,8 @@ handlers["SP"] = function(sender, payload)
 	elseif rev <= localRev then
 		return
 	end
+	HO.Plan.CancelArrivals(owner)
+	if plan.autoPlayer and plan.autoPlayer[owner] then plan.autoPlayer[owner][target] = nil end
 	plan.player[owner] = plan.player[owner] or {}
 	plan.player[owner][target] = (id ~= 0) and id or nil
 	Revs(plan)[owner] = rev
@@ -835,73 +854,108 @@ handlers["T"] = function(sender, payload)
 	RefreshUI()
 end
 
-handlers["PS"] = function(sender)
-	-- start (or restart) a snapshot buffer for this sender, discarding any
-	-- half-received one from the same sender; the timestamp feeds the
-	-- sync-in-progress indicator and ages out abandoned streams
-	if Comm.CanBulk(sender) then
-		planBuffers[sender] = { rows = {}, tanks = {}, t = GetTime() }
-		RefreshUI() -- show the sync lock immediately, not on the next message
+local function SanctionedRestore(sender)
+	return sender == salvRevertFrom and GetTime() < salvRevertUntil
+end
+
+local function SnapshotCounts(payload, ending)
+	local rows, tanks, checksum
+	if ending then rows, tanks, checksum = payload:match("^(%d+);(%d+);(%d+)$")
+	else rows, tanks = payload:match("^(%d+);(%d+)$") end
+	rows, tanks = ValidRev(rows), ValidRev(tanks)
+	if not rows or not tanks or rows > 1000 or tanks > 1000 then return nil end
+	return rows, tanks, tonumber(checksum)
+end
+
+handlers["PS"] = function(sender, payload)
+	planBuffers[sender] = nil
+	if not Comm.CanBulk(sender) and not SanctionedRestore(sender) then return end
+	local rows, tanks = SnapshotCounts(payload)
+	if not rows then
+		-- Legacy snapshots omit the tank total. They cannot prove completeness;
+		-- retain the current plan instead of accepting a possible partial copy.
+		HO.Log("comm", "plan apply from " .. sender .. " discarded (missing snapshot totals)")
+		RefreshUI()
+		return
 	end
+	planBuffers[sender] = { rows = {}, payloads = {}, tanks = {}, owners = {}, tankNames = {},
+		expectedRows = rows, expectedTanks = tanks, t = GetTime() }
+	RefreshUI()
+end
+
+local function SnapshotBuffer(sender)
+	local buf = planBuffers[sender]
+	if buf and GetTime() - buf.t >= PLAN_STREAM_TIMEOUT then
+		planBuffers[sender] = nil
+		RefreshUI()
+		return nil
+	end
+	return buf
 end
 
 handlers["PR"] = function(sender, payload)
-	local buf = planBuffers[sender]
-	if buf then
-		table.insert(buf.rows, payload)
+	local buf = SnapshotBuffer(sender)
+	if not buf or buf.invalid then return end
+	local row = DecodeRow(payload)
+	if not row or buf.owners[row.owner] or #buf.rows >= buf.expectedRows then
+		buf.invalid = true
+		return
 	end
+	buf.owners[row.owner] = true
+	buf.rows[#buf.rows + 1] = row
+	buf.payloads[#buf.payloads + 1] = payload
+	buf.t = GetTime()
 end
 
 handlers["PT"] = function(sender, payload)
-	local buf = planBuffers[sender]
-	if buf and payload then
-		for name in string.gmatch(payload, "[^|]+") do
-			table.insert(buf.tanks, name)
+	local buf = SnapshotBuffer(sender)
+	if not buf or buf.invalid then return end
+	for name in (payload .. "|"):gmatch("(.-)|") do
+		local target = name:match("^!(.+)$") or name
+		if target == "" or target:find("[!;=]") or buf.tankNames[target]
+			or #buf.tanks >= buf.expectedTanks then
+			buf.invalid = true
+			return
 		end
+		buf.tankNames[target] = true
+		buf.tanks[#buf.tanks + 1] = name
 	end
+	buf.t = GetTime()
 end
 
-handlers["PE"] = function(sender)
-	local buf = planBuffers[sender]
-	if not buf then
-		return
-	end
-	local rows, tanks = buf.rows, buf.tanks
+handlers["PE"] = function(sender, payload)
+	local buf = SnapshotBuffer(sender)
+	if not buf then return end
 	planBuffers[sender] = nil
-	-- re-check bulk permission at apply time: a demotion mid-stream discards the
-	-- whole buffer rather than applying a snapshot the sender may no longer own.
-	-- Exception: the no-Salvation holder answering a lead's revert (see above).
-	local sanctioned = (sender == salvRevertFrom) and GetTime() < salvRevertUntil
+	-- The same narrow restore exception applies at both ends of the stream.
+	local sanctioned = SanctionedRestore(sender)
 	if not Comm.CanBulk(sender) and not sanctioned then
 		HO.Log("comm", "plan apply from " .. sender .. " discarded (no bulk permission at PE)")
+		RefreshUI()
 		return
 	end
-	if sanctioned then
-		salvRevertFrom = nil
+	local rows, tanks, checksum = SnapshotCounts(payload, true)
+	if buf.invalid or rows ~= buf.expectedRows or tanks ~= buf.expectedTanks
+		or #buf.rows ~= rows or #buf.tanks ~= tanks
+		or checksum ~= SnapshotChecksum(buf.payloads, buf.tanks) then
+		HO.Log("comm", "plan apply from " .. sender .. " discarded (incomplete snapshot)")
+		RefreshUI()
+		return
 	end
-	local plan = HO.Plan.Active()
-	local applied = 0
-	-- adopt every buffered row unconditionally (bulk permission was checked)
-	for _, row in ipairs(rows) do
-		if ApplyRow(row, sender, true) then
-			applied = applied + 1
-		end
-	end
-	wipe(plan.tanks)
-	for _, name in ipairs(tanks) do
+	local tankMarks = {}
+	for _, name in ipairs(buf.tanks) do
 		local suppressed = name:match("^!(.+)$")
-		if suppressed then
-			plan.tanks[suppressed] = false -- explicit "never a tank" mark
-		else
-			plan.tanks[name] = true
-		end
+		if suppressed then tankMarks[suppressed] = false
+		else tankMarks[name] = true end
 	end
-	-- a remote bulk apply is a new clean baseline
-	plan.meta = plan.meta or {}
+	if sanctioned then salvRevertFrom = nil end
+	local plan = HO.Plan.Active()
+	HO.Plan.CancelArrivals()
+	for _, row in ipairs(buf.rows) do CommitRow(plan, row) end
+	plan.tanks = tankMarks
 	plan.meta.dirty = false
-	-- the snapshot supersedes any pre-snapshot tank click still waiting to send
 	CancelQueued("T")
-	HO.Log("comm", "plan apply from " .. sender .. ": " .. applied .. "/" .. #rows .. " rows")
+	HO.Log("comm", "plan apply from " .. sender .. ": " .. #buf.rows .. " rows")
 	HO.Announce("blessing plan received from " .. sender)
 	RefreshUI()
 end
