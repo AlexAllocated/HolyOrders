@@ -64,11 +64,12 @@ local function OwnSpecTag()
 	return OWN_TAB_SPECS[best]
 end
 
--- my own spec for consumers outside the planner: a hand-set (or synced) tag
--- wins, talent inference fills in — the same order ResolvePreference uses
+-- Own spec: a local tag wins, then talent inference, then the synced fallback.
+-- Keep the same precedence as ResolvePreference.
 function Planner.OwnSpec()
 	local me = HO.FullName("player")
 	return (me and HO.db.specCache[me]) or OwnSpecTag()
+		or (me and HO.Comm and HO.Comm.specSync[me])
 end
 
 -- what a tank should get, best first: Kings, then Light, then the stat
@@ -87,6 +88,9 @@ function Planner.ResolvePreference(name, classToken, isTank)
 	local spec = name and HO.db.specCache[name]
 	if not spec and name and name == HO.FullName("player") then
 		spec = OwnSpecTag()
+	end
+	if not spec and name and HO.Comm then
+		spec = HO.Comm.specSync[name]
 	end
 	local chain = (prefs and ((spec and prefs[spec]) or prefs.default)) or { KINGS }
 	-- ordered chain, highest priority first, duplicates dropped keeping the earliest:
@@ -246,6 +250,7 @@ end
 -- main -------------------------------------------------------------------------
 
 local function RunCore(pallys)
+	HO.Plan.CancelArrivals()
 	local plan = HO.Plan.Active()
 	local units = HO.Roster.units
 	local isRaid = IsInRaid()
@@ -549,7 +554,8 @@ local function RunCore(pallys)
 			for target, id in pairs(targets) do
 				local entry = HO.Roster.byName[target]
 				local a = entry and not entry.isPet and rows[entry.class]
-				if a and a.id == id then
+				if a and a.id == id and plan.autoPlayer and plan.autoPlayer[pally]
+					and plan.autoPlayer[pally][target] then
 					targets[target] = nil
 					if plan.autoPlayer and plan.autoPlayer[pally] then
 						plan.autoPlayer[pally][target] = nil

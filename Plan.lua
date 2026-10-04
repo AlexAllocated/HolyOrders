@@ -14,6 +14,12 @@ Plan.MAX_STORED = 20 -- unnamed plans beyond this are pruned (oldest first)
 Plan.SUGGEST_THRESHOLD = 0.5 -- min paladin-set overlap for a suggestion
 
 local VALID_MODES = { auto = true, greater = true, normal = true }
+local pendingArrivals = {}
+
+function Plan.CancelArrivals(paladin)
+	if paladin then pendingArrivals[paladin] = nil
+	else wipe(pendingArrivals) end
+end
 
 local function NewPlan()
 	return {
@@ -95,7 +101,8 @@ local function MarkDirty(plan)
 	plan.meta.dirty = true
 end
 
-function Plan.SetClassAssignment(paladin, classToken, blessingID, mode)
+function Plan.SetClassAssignment(paladin, classToken, blessingID, mode, arrival)
+	if not arrival or pendingArrivals[paladin] ~= arrival then Plan.CancelArrivals(paladin) end
 	local plan = Plan.Active()
 	plan.class[paladin] = plan.class[paladin] or {}
 	if blessingID == 0 then
@@ -125,6 +132,7 @@ end
 -- re-assignable slot instead of removing the duty. Local-only — it serializes as
 -- absence (unassigned) on the wire, so peers treat the class as cleared.
 function Plan.SetClassNone(paladin, classToken)
+	Plan.CancelArrivals(paladin)
 	local plan = Plan.Active()
 	plan.class[paladin] = plan.class[paladin] or {}
 	plan.class[paladin][classToken] = { none = true }
@@ -161,7 +169,13 @@ function Plan.GetAura(paladin)
 end
 
 function Plan.SetPlayerOverride(paladin, targetName, blessingID)
+	Plan.CancelArrivals(paladin)
 	local plan = Plan.Active()
+	-- The planner explicitly marks its own writes after calling this setter.
+	-- A later deliberate edit must no longer be cleared by Auto.
+	if plan.autoPlayer and plan.autoPlayer[paladin] then
+		plan.autoPlayer[paladin][targetName] = nil
+	end
 	plan.player[paladin] = plan.player[paladin] or {}
 	if blessingID == 0 then
 		plan.player[paladin][targetName] = nil
@@ -255,6 +269,7 @@ function Plan.NoSalvationActive()
 end
 
 function Plan.SetNoSalvation(enable)
+	Plan.CancelArrivals()
 	if enable then
 		-- never overwrite an existing snapshot (F2): two leads racing must not
 		-- snapshot each other's already-swapped plan
@@ -514,17 +529,24 @@ local function HandleArrivals()
 				end
 			end
 			if captured then
+				local arrival = {}
+				pendingArrivals[real] = arrival
+				local function Current()
+					return pendingArrivals[real] == arrival and Plan.Active() == plan
+						and HO.Roster.byName[real] ~= nil
+				end
 				HO.Announce(real .. " arrived — holding their pre-planned assignments")
 				-- replace the row wholesale with the pre-planned lane: what the
 				-- arriving client announced is in practice stale leftovers from
 				-- an older group. Returns false without permission.
 				local function ApplyCaptured()
+					if not Current() then return false end
 					local editor = HO.FullName("player")
 					if HO.Comm and editor and not HO.Comm.CanEdit(editor, real) then
 						return false -- no permission; their own row stands
 					end
 					for classToken, a in pairs(captured) do
-						Plan.SetClassAssignment(real, classToken, a.id, a.mode)
+						Plan.SetClassAssignment(real, classToken, a.id, a.mode, arrival)
 					end
 					-- clear classes outside the pre-plan so the lane is exactly
 					-- what was planned, not a merge with their leftovers
@@ -535,7 +557,7 @@ local function HandleArrivals()
 						end
 					end
 					for _, classToken in ipairs(clear) do
-						Plan.SetClassAssignment(real, classToken, 0)
+						Plan.SetClassAssignment(real, classToken, 0, nil, arrival)
 					end
 					return true
 				end
@@ -544,7 +566,7 @@ local function HandleArrivals()
 					local row = Plan.Active().class[real] or {}
 					for classToken, a in pairs(captured) do
 						local cur = row[classToken]
-						if not cur or cur.id ~= a.id then
+						if not cur or cur.id ~= a.id or cur.mode ~= a.mode then
 							return false
 						end
 					end
@@ -557,6 +579,7 @@ local function HandleArrivals()
 				end
 				C_Timer.After(ARRIVAL_REASSERT_DELAY, function()
 					if not ApplyCaptured() then
+						if pendingArrivals[real] == arrival then pendingArrivals[real] = nil end
 						return
 					end
 					HO.Announce("pre-planned assignments applied for " .. real)
@@ -565,9 +588,10 @@ local function HandleArrivals()
 					-- our edits can land after them and overwrite the lane
 					-- (owner rows apply unconditionally). One bounded retry.
 					C_Timer.After(ARRIVAL_REASSERT_DELAY, function()
-						if not Matches() and ApplyCaptured() then
+						if Current() and not Matches() and ApplyCaptured() then
 							HO.Announce("pre-planned assignments re-applied for " .. real .. " (a crossing update had overwritten them)")
 						end
+						if pendingArrivals[real] == arrival then pendingArrivals[real] = nil end
 					end)
 					-- their capabilities are known by now (from their client's
 					-- greeting): warn loudly when the pre-plan does not fit —
@@ -598,6 +622,9 @@ local lastHandledSig
 local function OnRosterChanged()
 	if not HO.db then
 		return
+	end
+	for name in pairs(pendingArrivals) do
+		if not HO.Roster.byName[name] then Plan.CancelArrivals(name) end
 	end
 	HandleArrivals()
 	local sig = Plan.CurrentSignature()
