@@ -878,7 +878,9 @@ handlers["PS"] = function(sender, payload)
 		RefreshUI()
 		return
 	end
-	planBuffers[sender] = { rows = {}, payloads = {}, tanks = {}, owners = {}, tankNames = {},
+	local revisions = {}
+	for owner, rev in pairs(Revs(HO.Plan.Active())) do revisions[owner] = rev end
+	planBuffers[sender] = { rows = {}, payloads = {}, tanks = {}, owners = {}, tankNames = {}, revisions = revisions,
 		expectedRows = rows, expectedTanks = tanks, t = GetTime() }
 	RefreshUI()
 end
@@ -942,6 +944,16 @@ handlers["PE"] = function(sender, payload)
 		RefreshUI()
 		return
 	end
+	local plan = HO.Plan.Active()
+	for _, row in ipairs(buf.rows) do
+		local currentRev = Revs(plan)[row.owner] or 0
+		local changed = currentRev ~= (buf.revisions[row.owner] or 0)
+		if row.rev < currentRev or (changed and row.rev == currentRev) then
+			HO.Log("comm", "plan apply from " .. sender .. " discarded (newer local edits)")
+			Comm.RequestSync()
+			return
+		end
+	end
 	local tankMarks = {}
 	for _, name in ipairs(buf.tanks) do
 		local suppressed = name:match("^!(.+)$")
@@ -949,7 +961,6 @@ handlers["PE"] = function(sender, payload)
 		else tankMarks[name] = true end
 	end
 	if sanctioned then salvRevertFrom = nil end
-	local plan = HO.Plan.Active()
 	HO.Plan.CancelArrivals()
 	for _, row in ipairs(buf.rows) do CommitRow(plan, row) end
 	plan.tanks = tankMarks
