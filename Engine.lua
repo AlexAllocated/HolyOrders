@@ -267,7 +267,8 @@ function Engine.ClassActions(classToken)
 		if not member.isPet then
 			if not assign or member.isOverride or member.castBlessingID ~= assign.id then
 				safeGreater = false
-			elseif member.unit and not anchor then
+			elseif blessing and member.unit and not anchor
+				and Castable(member) and InCastRange(blessing, member.unit) then
 				anchor = member.unit
 			end
 		end
@@ -285,7 +286,8 @@ function Engine.ClassActions(classToken)
 		if single and single.name and target then
 			local spell = (useGreater and not member.isPet) and blessing.greaterName or single.name
 			actions.cycle[#actions.cycle + 1] = { target = target, spell = spell }
-			if not actions.rightSpell then
+			if not actions.rightSpell and member.unit
+				and Castable(member) and InCastRange(single, member.unit) then
 				actions.rightSpell, actions.rightUnit = single.name, member.unit
 			end
 		end
@@ -334,6 +336,7 @@ function Engine.Update()
 				local member = {
 					name = entry.name,
 					unit = entry.unit,
+					online = entry.online,
 					isPet = entry.isPet or nil,
 					owner = entry.owner,
 					blessingID = (blessingID and blessingID > 0) and blessingID or nil,

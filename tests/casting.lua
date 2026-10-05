@@ -7,6 +7,32 @@ local function warriors()
 	f.HO.Plan.Active().tanks["Tank-Realm"] = true
 	return f
 end
+for _, unavailable in ipairs({ "dead", "offline", "invisible", "out of range" }) do
+	H.test("right-click skips a member who is " .. unavailable, function()
+		local f = warriors()
+		local first = f.HO.Roster.byName["Tank-Realm"]
+		first.online = unavailable ~= "offline"
+		UnitIsDeadOrGhost = function(unit) return unit == "raid1" and unavailable == "dead" end
+		UnitIsVisible = function(unit) return unit ~= "raid1" or unavailable ~= "invisible" end
+		f.HO.Compat.SpellInRange = function(_, unit)
+			return unit ~= "raid1" or unavailable ~= "out of range"
+		end
+		f.HO.Plan.SetClassAssignment("Me-Realm", "WARRIOR", 2, "greater")
+		barFixture(H, f)
+		local b = f:button("WARRIOR")
+		assert(b.attrs.unit2 == "raid2" and b.attrs.spell2 == "Greater MIGHT")
+		assert(b.attrs.macrotext1 == "/cast [@raid2,help,nodead] Greater MIGHT")
+		-- The fallback for an override-only duty must use the same checks.
+		f.HO.Plan.SetClassNone("Me-Realm", "WARRIOR")
+		f.HO.Plan.SetPlayerOverride("Me-Realm", "Tank-Realm", 3)
+		f.HO.Plan.SetPlayerOverride("Me-Realm", "Damage-Realm", 3)
+		f.HO.Bar.Refresh()
+		assert(b.attrs.unit2 == "raid2" and b.attrs.spell2 == "KINGS")
+		UnitIsVisible = function() return false end
+		f.HO.Bar.Refresh()
+		assert(b.attrs.unit2 == nil and b.attrs.spell2 == nil, "no target is better than an unusable one")
+	end)
+end
 H.test("flyout and combat cycle exclude tanks from class Salvation", function()
 	local f = warriors()
 	f.HO.Plan.SetClassAssignment("Me-Realm", "WARRIOR", 4, "normal")
